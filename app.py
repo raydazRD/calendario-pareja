@@ -1,64 +1,73 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import calendar
 
-# 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Organizador Pareja 2026", page_icon="👩‍❤️‍👨", layout="wide")
+st.set_page_config(page_title="Organizador Pareja", page_icon="👩‍❤️‍👨", layout="wide")
 
-st.markdown("<h1 style='text-align: center; color: #4A90E2;'>👩‍❤️‍👨 Nuestro Organizador Personal</h1>", unsafe_allow_html=True)
+# Estilo para el calendario
+st.markdown("""
+    <style>
+    .calendario-tabla { width: 100%; border-collapse: collapse; table-layout: fixed; background-color: white; color: black; }
+    .calendario-tabla th, .calendario-tabla td { border: 1px solid #ddd; padding: 5px; text-align: center; vertical-align: top; height: 80px; font-size: 12px; }
+    .tarea-item { background-color: #e1f5fe; border-radius: 3px; padding: 2px; margin-top: 2px; font-size: 9px; color: #01579b; border-left: 2px solid #0288d1; }
+    .urgente { background-color: #ffebee; color: #b71c1c; border-left: 2px solid #d32f2f; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 2. CONEXIÓN A TU GOOGLE SHEETS
-# Reemplaza con tu URL si es diferente, pero esta es la que me pasaste:
+st.title("👩‍❤️‍👨 Nuestro Organizador 2026")
+
+# CONEXIÓN
 url = "https://docs.google.com/spreadsheets/d/1Zx8qzNt2DEeO2XTG6yip6jQnzVdp0TjHHjfGf5yV5KM/edit?usp=sharing"
-
-# Creamos la conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Leer los datos actuales
+# LEER DATOS
 try:
-    df = conn.read(spreadsheet=url, usecols=[0, 1, 2])
+    df = conn.read(spreadsheet=url, ttl=0) # ttl=0 para que siempre esté actualizado
     df = df.dropna(how="all")
+    df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
 except:
     df = pd.DataFrame(columns=["Fecha", "Tarea", "Tipo"])
 
-# 3. FORMULARIO EN LA BARRA LATERAL PARA AGREGAR TAREAS
+# FORMULARIO LATERAL
 with st.sidebar:
     st.header("📝 Nueva Tarea")
-    with st.form("formulario_tareas", clear_on_submit=True):
-        fecha = st.date_input("Fecha:")
-        tarea = st.text_input("¿Qué hay que hacer?")
-        tipo = st.selectbox("Categoría:", ["Personal", "Laboral", "Familiar", "Urgente"])
-        boton_guardar = st.form_submit_button("Guardar en Calendario")
-
-    if boton_guardar and tarea:
-        # Crear nueva fila
-        nueva_fila = pd.DataFrame([{"Fecha": str(fecha), "Tarea": tarea, "Tipo": tipo}])
-        # Unir con los datos viejos
-        df_actualizado = pd.concat([df, nueva_fila], ignore_index=True)
-        # Subir a Google Sheets
-        conn.update(spreadsheet=url, data=df_actualizado)
-        st.success("¡Tarea guardada con éxito!")
-        st.balloons()
-
-# 4. VISUALIZACIÓN DE TAREAS POR MES
-st.markdown("---")
-meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-mes_sel = st.selectbox("Selecciona un mes para revisar:", meses)
-mes_num = meses.index(mes_sel) + 1
-
-if not df.empty:
-    # Convertir fecha a formato real para filtrar
-    df['Fecha'] = pd.to_datetime(df['Fecha'])
-    filtro_mes = df[df['Fecha'].dt.month == mes_num].copy()
+    f_fecha = st.date_input("Fecha:")
+    f_tarea = st.text_input("¿Qué hay que hacer?")
+    f_tipo = st.selectbox("Tipo:", ["Personal", "Laboral", "Familiar", "Urgente"])
     
-    if not filtro_mes.empty:
-        filtro_mes = filtro_mes.sort_values(by="Fecha")
-        # Mostrar las tareas en una lista limpia
-        for index, fila in filtro_mes.iterrows():
-            emoji = "🔴" if fila['Tipo'] == "Urgente" else "🔵"
-            st.write(f"{emoji} **{fila['Fecha'].strftime('%d/%m')}**: {fila['Tarea']} ({fila['Tipo']})")
-    else:
-        st.info(f"No hay tareas anotadas para {mes_sel}.")
-else:
-    st.info("Aún no hay tareas en la lista. ¡Usa el panel de la izquierda!")
+    if st.button("Guardar"):
+        nueva = pd.DataFrame([{"Fecha": f_fecha, "Tarea": f_tarea, "Tipo": f_tipo}])
+        df_new = pd.concat([df, nueva], ignore_index=True)
+        conn.update(spreadsheet=url, data=df_new)
+        st.success("¡Guardado! Refresca la página.")
+        st.rerun()
+
+# MOSTRAR CALENDARIO
+meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+sel_mes = st.selectbox("Mes:", meses, index=0)
+m_num = meses.index(sel_mes) + 1
+
+cal = calendar.monthcalendar(2026, m_num)
+html = '<table class="calendario-tabla"><tr><th>Lu</th><th>Ma</th><th>Mi</th><th>Ju</th><th>Vi</th><th>Sá</th><th>Do</th></tr>'
+
+for semana in cal:
+    html += '<tr>'
+    for dia in semana:
+        if dia == 0:
+            html += '<td></td>'
+        else:
+            # Buscar tareas para este día
+            fecha_dia = pd.to_datetime(f"2026-{m_num}-{dia}").date()
+            tareas_hoy = df[df['Fecha'] == fecha_dia]
+            
+            celda_contenido = f"<b>{dia}</b>"
+            for _, t in tareas_hoy.iterrows():
+                clase_t = "tarea-item urgente" if t['Tipo'] == "Urgente" else "tarea-item"
+                celda_contenido += f'<div class="{clase_t}">{t["Tarea"]}</div>'
+            
+            html += f'<td>{celda_contenido}</td>'
+    html += '</tr>'
+html += '</table>'
+
+st.markdown(html, unsafe_allow_html=True)
