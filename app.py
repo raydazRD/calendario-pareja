@@ -1,73 +1,99 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import calendar
+import os
+from datetime import datetime
 
+# 1. CONFIGURACIÓN
 st.set_page_config(page_title="Organizador Pareja", page_icon="👩‍❤️‍👨", layout="wide")
+ARCHIVO_DATOS = "tareas.csv"
 
-# Estilo para el calendario
+# 2. ESTILO VISUAL (CUADRÍCULA)
 st.markdown("""
     <style>
     .calendario-tabla { width: 100%; border-collapse: collapse; table-layout: fixed; background-color: white; color: black; }
-    .calendario-tabla th, .calendario-tabla td { border: 1px solid #ddd; padding: 5px; text-align: center; vertical-align: top; height: 80px; font-size: 12px; }
-    .tarea-item { background-color: #e1f5fe; border-radius: 3px; padding: 2px; margin-top: 2px; font-size: 9px; color: #01579b; border-left: 2px solid #0288d1; }
-    .urgente { background-color: #ffebee; color: #b71c1c; border-left: 2px solid #d32f2f; }
+    .calendario-tabla th, .calendario-tabla td { border: 1px solid #444; padding: 5px; text-align: center; vertical-align: top; height: 100px; font-size: 14px; color: black; }
+    .calendario-tabla th { background-color: #f0f2f6; font-weight: bold; }
+    
+    /* Estilo de las notitas */
+    .tarea-item { 
+        background-color: #e3f2fd; 
+        border-left: 4px solid #2196f3; 
+        padding: 2px 4px; 
+        margin-top: 2px; 
+        font-size: 11px; 
+        text-align: left; 
+        border-radius: 2px;
+        color: black;
+        overflow: hidden;
+    }
+    .urgente { background-color: #ffebee; border-left: 4px solid #f44336; color: black; }
+    .laboral { background-color: #e8f5e9; border-left: 4px solid #4caf50; color: black; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("👩‍❤️‍👨 Nuestro Organizador 2026")
+st.title("👩‍❤️‍👨 Nuestro Organizador (Modo Local)")
 
-# CONEXIÓN
-url = "https://docs.google.com/spreadsheets/d/1Zx8qzNt2DEeO2XTG6yip6jQnzVdp0TjHHjfGf5yV5KM/edit?usp=sharing"
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# LEER DATOS
-try:
-    df = conn.read(spreadsheet=url, ttl=0) # ttl=0 para que siempre esté actualizado
-    df = df.dropna(how="all")
-    df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
-except:
+# 3. CARGAR O CREAR EL ARCHIVO DE DATOS
+if os.path.exists(ARCHIVO_DATOS):
+    try:
+        df = pd.read_csv(ARCHIVO_DATOS)
+        # Aseguramos que la columna Fecha sea tipo fecha
+        df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
+    except:
+        df = pd.DataFrame(columns=["Fecha", "Tarea", "Tipo"])
+else:
     df = pd.DataFrame(columns=["Fecha", "Tarea", "Tipo"])
 
-# FORMULARIO LATERAL
+# 4. FORMULARIO BARRA LATERAL
 with st.sidebar:
-    st.header("📝 Nueva Tarea")
-    f_fecha = st.date_input("Fecha:")
-    f_tarea = st.text_input("¿Qué hay que hacer?")
-    f_tipo = st.selectbox("Tipo:", ["Personal", "Laboral", "Familiar", "Urgente"])
+    st.header("📝 Nueva Nota")
+    with st.form("form_tarea", clear_on_submit=True):
+        f_fecha = st.date_input("Fecha")
+        f_tarea = st.text_input("Tarea / Evento")
+        f_tipo = st.selectbox("Etiqueta", ["Personal", "Laboral", "Familiar", "Urgente"])
+        submitted = st.form_submit_button("Guardar Nota")
     
-    if st.button("Guardar"):
-        nueva = pd.DataFrame([{"Fecha": f_fecha, "Tarea": f_tarea, "Tipo": f_tipo}])
-        df_new = pd.concat([df, nueva], ignore_index=True)
-        conn.update(spreadsheet=url, data=df_new)
-        st.success("¡Guardado! Refresca la página.")
+    if submitted and f_tarea:
+        nuevo_dato = pd.DataFrame([{"Fecha": f_fecha, "Tarea": f_tarea, "Tipo": f_tipo}])
+        # Unimos los datos
+        df = pd.concat([df, nuevo_dato], ignore_index=True)
+        # Guardamos en el archivo CSV local
+        df.to_csv(ARCHIVO_DATOS, index=False)
+        st.success("¡Guardado!")
         st.rerun()
 
-# MOSTRAR CALENDARIO
-meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-sel_mes = st.selectbox("Mes:", meses, index=0)
-m_num = meses.index(sel_mes) + 1
+# 5. DIBUJAR CALENDARIO
+col1, col2 = st.columns([1, 3])
+with col1:
+    meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    sel_mes = st.selectbox("Seleccionar Mes:", meses)
+    m_num = meses.index(sel_mes) + 1
 
+# Lógica del calendario
 cal = calendar.monthcalendar(2026, m_num)
-html = '<table class="calendario-tabla"><tr><th>Lu</th><th>Ma</th><th>Mi</th><th>Ju</th><th>Vi</th><th>Sá</th><th>Do</th></tr>'
+html = '<table class="calendario-tabla"><thead><tr><th>Lu</th><th>Ma</th><th>Mi</th><th>Ju</th><th>Vi</th><th>Sá</th><th>Do</th></tr></thead><tbody>'
 
 for semana in cal:
     html += '<tr>'
     for dia in semana:
         if dia == 0:
-            html += '<td></td>'
+            html += '<td style="background-color: #f9f9f9;"></td>'
         else:
-            # Buscar tareas para este día
-            fecha_dia = pd.to_datetime(f"2026-{m_num}-{dia}").date()
-            tareas_hoy = df[df['Fecha'] == fecha_dia]
+            # Filtrar tareas de este día
+            fecha_actual = pd.to_datetime(f"2026-{m_num}-{dia}").date()
+            tareas_hoy = df[df['Fecha'] == fecha_actual]
             
-            celda_contenido = f"<b>{dia}</b>"
-            for _, t in tareas_hoy.iterrows():
-                clase_t = "tarea-item urgente" if t['Tipo'] == "Urgente" else "tarea-item"
-                celda_contenido += f'<div class="{clase_t}">{t["Tarea"]}</div>'
+            contenido_celda = f"<b>{dia}</b>"
+            for _, row in tareas_hoy.iterrows():
+                clase_css = "tarea-item"
+                if row['Tipo'] == "Urgente": clase_css += " urgente"
+                if row['Tipo'] == "Laboral": clase_css += " laboral"
+                
+                contenido_celda += f'<div class="{clase_css}">{row["Tarea"]}</div>'
             
-            html += f'<td>{celda_contenido}</td>'
+            html += f'<td>{contenido_celda}</td>'
     html += '</tr>'
-html += '</table>'
 
+html += '</tbody></table>'
 st.markdown(html, unsafe_allow_html=True)
